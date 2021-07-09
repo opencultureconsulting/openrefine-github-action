@@ -1,0 +1,71 @@
+name: example # available as environment variable $GITHUB_WORKFLOW
+
+on:
+  workflow_dispatch: # allows you to run this workflow manually from the Actions tab
+
+jobs:
+  main:
+    runs-on: ubuntu-20.04
+    steps:
+    - uses: actions/checkout@v2 # checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+    - name: install OpenRefine and openrefine-client
+      run: |
+        mkdir -p output .openrefine .openrefine/data
+        cd .openrefine
+        wget -q -O openrefine.tar.gz https://github.com/OpenRefine/OpenRefine/releases/download/3.4.1/openrefine-linux-3.4.1.tar.gz
+        tar -xzf openrefine.tar.gz --strip 1
+        sed -i '$ a JAVA_OPTIONS=-Drefine.headless=true' refine.ini # do not try to open OpenRefine in browser
+        sed -i 's/#REFINE_AUTOSAVE_PERIOD=60/REFINE_AUTOSAVE_PERIOD=1440/' refine.ini # set autosave period from 5 minutes to 25 hours
+        wget -q -O client https://github.com/opencultureconsulting/openrefine-client/releases/download/v0.3.10/openrefine-client_0-3-10_linux
+        chmod +x client
+        cd -
+    - name: start OpenRefine
+      run: |
+        .openrefine/refine -m 5120M -v warn -d data >> .openrefine/log.txt 2>&1 &
+        timeout 30s bash -c "until wget -q -O - -o /dev/null http://localhost:3333 | cat | grep -q -o OpenRefine; do sleep 1; done"
+    - name: import
+      run: |
+        .openrefine/client \
+        --create "$(readlink -m input/schriftstellerinnen.csv)" \
+        --encoding UTF-8 \
+        --projectName "$GITHUB_WORKFLOW" \
+        > >(tee -a .openrefine/log.txt) 2>&1
+    - name: transform
+      run: |
+        .openrefine/client "$GITHUB_WORKFLOW" \
+        --apply "$(readlink -m config/history.json)" \
+        > >(tee -a .openrefine/log.txt) 2>&1
+    - name: export
+      run: |
+        .openrefine/client "$GITHUB_WORKFLOW" \
+        --output "$(readlink -m output/schriftstellerinnen.tsv)" \
+        > >(tee -a .openrefine/log.txt) 2>&1
+    - name: stop OpenRefine
+      if: always()
+      run: |
+        PID=$(lsof -t -i:3333)
+        echo "used $(($(ps --no-headers -o rss -p "$PID") / 1024)) MB RAM" > >(tee -a .openrefine/log.txt) 2>&1
+        echo "used $(ps --no-headers -o cputime -p "$PID") CPU time" > >(tee -a .openrefine/log.txt) 2>&1
+        kill $PID; while ps -p $PID > /dev/null; do sleep 1; done
+    - name: archive OpenRefine projects
+      if: always()
+      run: for p in .openrefine/data/*/; do tar cfz .openrefine/data/"${p:17:13}.openrefine.tar.gz" -C $p .; done
+    - uses: actions/upload-artifact@v2
+      if: always()
+      with:
+        name: OpenRefine project(s)
+        path: .openrefine/data/*.openrefine.tar.gz
+    - name: check logfile for any warnings
+      if: always()
+      run: |
+        if grep -i 'exception\|error' .openrefine/log.txt
+          then echo 1>&2 "log contains warnings!"; echo; cat .openrefine/log.txt; exit 1;
+          else echo "log seems to be ok"; echo; cat .openrefine/log.txt
+        fi
+    - name: commit and push if output changed
+      run: |-
+        git config user.name "Automated"
+        git config user.email "actions@users.noreply.github.com"
+        git add -A
+        git commit -m "latest change: $(date -u)" || exit 0
+        git push
