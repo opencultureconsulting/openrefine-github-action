@@ -55,6 +55,7 @@ jobs:
       with:
         name: OpenRefine project(s)
         path: .openrefine/data/*.openrefine.tar.gz
+        retention-days: 5
     - name: check logfile for any warnings
       if: always()
       run: |
