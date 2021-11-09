@@ -12,7 +12,7 @@ jobs:
       run: |
         mkdir -p output .openrefine .openrefine/data
         cd .openrefine
-        wget -q -O openrefine.tar.gz https://github.com/OpenRefine/OpenRefine/releases/download/3.4.1/openrefine-linux-3.4.1.tar.gz
+        wget -q -O openrefine.tar.gz https://github.com/OpenRefine/OpenRefine/releases/download/3.5.0/openrefine-linux-3.5.0.tar.gz
         tar -xzf openrefine.tar.gz --strip 1
         sed -i '$ a JAVA_OPTIONS=-Drefine.headless=true' refine.ini # do not try to open OpenRefine in browser
         sed -i 's/#REFINE_AUTOSAVE_PERIOD=60/REFINE_AUTOSAVE_PERIOD=1440/' refine.ini # set autosave period from 5 minutes to 25 hours
