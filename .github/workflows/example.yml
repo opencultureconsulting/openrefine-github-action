@@ -11,14 +11,13 @@ jobs:
     - name: install OpenRefine and openrefine-client
       run: |
         mkdir -p output .openrefine .openrefine/data
-        cd .openrefine
-        wget -q -O openrefine.tar.gz https://github.com/OpenRefine/OpenRefine/releases/download/3.5.0/openrefine-linux-3.5.0.tar.gz
-        tar -xzf openrefine.tar.gz --strip 1
-        sed -i '$ a JAVA_OPTIONS=-Drefine.headless=true' refine.ini # do not try to open OpenRefine in browser
-        sed -i 's/#REFINE_AUTOSAVE_PERIOD=60/REFINE_AUTOSAVE_PERIOD=1440/' refine.ini # set autosave period from 5 minutes to 25 hours
-        wget -q -O client https://github.com/opencultureconsulting/openrefine-client/releases/download/v0.3.10/openrefine-client_0-3-10_linux
-        chmod +x client
-        cd -
+        wget --no-verbose -O openrefine.tar.gz https://github.com/OpenRefine/OpenRefine/releases/download/3.5.2/openrefine-linux-3.5.2.tar.gz
+        tar -xzf openrefine.tar.gz -C .openrefine --strip 1 && rm openrefine.tar.gz
+        sed -i 's/cd `dirname $0`/cd "$(dirname "$0")"/' ".openrefine/refine" # fix path issue in OpenRefine startup file
+        sed -i '$ a JAVA_OPTIONS=-Drefine.headless=true' ".openrefine/refine.ini" # do not try to open OpenRefine in browser
+        sed -i 's/#REFINE_AUTOSAVE_PERIOD=60/REFINE_AUTOSAVE_PERIOD=1440/' ".openrefine/refine.ini" # set autosave period from 5 minutes to 25 hours
+        wget --no-verbose -O .openrefine/client https://github.com/opencultureconsulting/openrefine-client/releases/download/v0.3.10/openrefine-client_0-3-10_linux
+        chmod +x .openrefine/client
     - name: start OpenRefine
       run: |
         .openrefine/refine -m 5120M -v warn -d data >> .openrefine/log.txt 2>&1 &
@@ -43,27 +42,26 @@ jobs:
     - name: stop OpenRefine
       if: always()
       run: |
-        PID=$(lsof -t -i:3333)
+        PID="$(lsof -t -i:3333)"
         echo "used $(($(ps --no-headers -o rss -p "$PID") / 1024)) MB RAM" > >(tee -a .openrefine/log.txt) 2>&1
         echo "used $(ps --no-headers -o cputime -p "$PID") CPU time" > >(tee -a .openrefine/log.txt) 2>&1
         kill $PID; while ps -p $PID > /dev/null; do sleep 1; done
     - name: archive OpenRefine projects
       if: always()
-      run: for p in .openrefine/data/*/; do tar cfz .openrefine/data/"${p:17:13}.openrefine.tar.gz" -C $p .; done
+      run: for p in .openrefine/data/*.project/; do tar cfz .openrefine/data/"${p:17:13}.openrefine.tar.gz" -C $p .; done
     - uses: actions/upload-artifact@v2
       if: always()
       with:
         name: OpenRefine project(s)
         path: .openrefine/data/*.openrefine.tar.gz
         retention-days: 5
-    - name: check logfile for any warnings
+    - name: check log file
       if: always()
       run: |
         if grep -i 'exception\|error' .openrefine/log.txt
-          then echo 1>&2 "log contains warnings!"; echo; cat .openrefine/log.txt; exit 1;
-          else echo "log seems to be ok"; echo; cat .openrefine/log.txt
+          then echo 1>&2 "log contains warnings!"; echo; cat .openrefine/log.txt; exit 1
         fi
-    - name: commit and push if output changed
+    - name: commit and push if something changed
       run: |-
         git config user.name "Automated"
         git config user.email "actions@users.noreply.github.com"
